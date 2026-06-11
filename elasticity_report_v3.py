@@ -711,38 +711,35 @@ function updStats(f,el){
 // ── Scatter ───────────────────────────────────────────────────────────────────
 function updScatter(f,el){
   if(!f.length){ pReact('ch-scatter',[],{height:360,...PLTBG,font:PLTFONT,annotations:[{text:'No data',showarrow:false,xref:'paper',yref:'paper',x:.5,y:.5,font:{size:14,color:'#9ca3af'}}]}); return; }
-  const byColorPrice={};
+  const byPriceKey={};
   f.forEach(r=>{
     if(r.pq===0)return;
     const p=Math.round(r.p),key=`${r.cn}||${p}`;
-    if(!byColorPrice[key])byColorPrice[key]={cn:r.cn,price:p,qty:0,days:0};
-    byColorPrice[key].qty+=r.pq; byColorPrice[key].days+=1;
+    if(!byPriceKey[key])byPriceKey[key]={cn:r.cn,price:p,qty:0,days:0};
+    byPriceKey[key].qty+=r.pq; byPriceKey[key].days+=1;
   });
-  const pts=Object.values(byColorPrice);
-  const byColor={};
+  const pts=Object.values(byPriceKey).filter(p=>p.qty>0);
+  if(!pts.length){ pReact('ch-scatter',[],{height:360,...PLTBG,font:PLTFONT,annotations:[{text:'No data',showarrow:false,xref:'paper',yref:'paper',x:.5,y:.5,font:{size:14,color:'#9ca3af'}}]}); return; }
+  const xs=[],ys=[],ts=[];
   pts.forEach(p=>{
-    if(!byColor[p.cn])byColor[p.cn]={x:[],y:[],t:[]};
-    byColor[p.cn].x.push(p.price); byColor[p.cn].y.push(p.qty);
     const nm=colorInfo(p.cn).name||p.cn; const short=nm.length>30?nm.slice(0,28)+'…':nm;
-    byColor[p.cn].t.push(`${short}<br>${p.cn}<br>Price: ${p.price.toLocaleString()}<br>Qty: ${p.qty.toLocaleString()}<br>Days: ${p.days}`);
+    xs.push(p.price); ys.push(p.qty);
+    ts.push(`${short}<br>${p.cn}<br>Price: ${p.price.toLocaleString()}<br>Qty: ${p.qty.toLocaleString()}<br>Days: ${p.days}`);
   });
-  const traces=Object.entries(byColor).map(([cn,d])=>{
-    const nm=colorInfo(cn).name||cn;
-    return {type:'scatter',mode:'markers',name:nm.length>22?nm.slice(0,20)+'…':nm,
-      x:d.x,y:d.y,text:d.t,hoverinfo:'text',marker:{opacity:.75,size:7}};
-  });
-  el.forEach(({cn,elasticity})=>{
-    const sp=pts.filter(p=>p.cn===cn&&p.qty>0);
-    if(sp.length<2)return;
-    const ps=sp.map(p=>p.price),mn=Math.min(...ps),mx=Math.max(...ps);
-    if(mn===mx)return;
-    const mlp=sp.reduce((s,p)=>s+Math.log(p.price),0)/sp.length;
-    const mlq=sp.reduce((s,p)=>s+Math.log(p.qty),0)/sp.length;
-    traces.push({type:'scatter',mode:'lines',name:`e=${elasticity.toFixed(2)}`,
-      x:[mn,mx],y:[Math.exp(mlq+elasticity*(Math.log(mn)-mlp)),Math.exp(mlq+elasticity*(Math.log(mx)-mlp))],
-      line:{width:1.5,dash:'dot'},showlegend:sel.size<=4,
-      hovertemplate:`${cn}<br>Elasticity: ${elasticity.toFixed(2)}<extra></extra>`});
-  });
+  const traces=[{type:'scatter',mode:'markers',name:'Data',showlegend:false,
+    x:xs,y:ys,text:ts,hoverinfo:'text',marker:{color:'#3b82f6',opacity:.5,size:6}}];
+  // overall OLS line across all combined points
+  const lps=pts.map(p=>Math.log(p.price)),lqs=pts.map(p=>Math.log(p.qty));
+  const n=lps.length,slp=lps.reduce((a,b)=>a+b,0)/n,slq=lqs.reduce((a,b)=>a+b,0)/n;
+  const num=lps.reduce((s,lp,i)=>s+(lp-slp)*(lqs[i]-slq),0);
+  const den=lps.reduce((s,lp)=>s+(lp-slp)**2,0);
+  if(den>0&&n>=5){
+    const e=num/den,mn=Math.min(...pts.map(p=>p.price)),mx=Math.max(...pts.map(p=>p.price));
+    traces.push({type:'scatter',mode:'lines',name:`Overall e=${e.toFixed(2)}`,
+      x:[mn,mx],y:[Math.exp(slq+e*(Math.log(mn)-slp)),Math.exp(slq+e*(Math.log(mx)-slp))],
+      line:{color:'#dc2626',width:2,dash:'dot'},
+      hovertemplate:`Overall elasticity: ${e.toFixed(2)}<extra></extra>`});
+  }
   pReact('ch-scatter',traces,{height:360,margin:{t:10,r:10,b:50,l:60},
     xaxis:{title:'Price',type:'log',...GRID},
     yaxis:{title:'Total Quantity Sold',type:'log',...GRID},
@@ -763,7 +760,6 @@ function updTable(el){
     :`<div class="tbl-wrap"><table>
       <thead><tr>
         <th onclick="sort('name')">Product${si('name')}</th>
-        <th onclick="sort('sku')">SKU${si('sku')}</th>
         <th onclick="sort('division')">Division${si('division')}</th>
         <th onclick="sort('rbu')">RBU${si('rbu')}</th>
         <th onclick="sort('gender')">Gender${si('gender')}</th>
@@ -774,7 +770,6 @@ function updTable(el){
       </tr></thead>
       <tbody>${s.map(r=>`<tr>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name}">${r.name}</td>
-        <td style="font-family:monospace;font-size:10px;color:var(--muted)">${r.sku}</td>
         <td style="font-size:11px;color:var(--muted)">${r.division||'—'}</td>
         <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.rbu||''}">${r.rbu||'—'}</td>
         <td style="font-size:11px;color:var(--muted)">${r.gender||'—'}</td>
