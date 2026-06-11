@@ -105,17 +105,20 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
     df = df[df["qty"] > 0]
     print(f"  Sales rows after cleaning: {len(df):,}")
 
-    # Join metadata
+    # Join metadata — colour_no is the analysis unit (SKU = colour + size)
     mf = load_metadata(meta_path)
     df = df.merge(mf, left_on="sku", right_on="ean", how="left")
     for col in ["color_no", "gender", "division", "rbu"]:
         df[col] = df[col].fillna("Unknown")
-    matched_pct = df["color_no"].ne("Unknown").mean() * 100
+    # Unmapped SKUs: fall back to SKU itself as the colour_no so no data is lost
+    df.loc[df["color_no"] == "Unknown", "color_no"] = df.loc[df["color_no"] == "Unknown", "sku"]
+    matched_pct = (~df["color_no"].eq(df["sku"])).mean() * 100
     print(f"  Metadata match: {matched_pct:.1f}% of rows")
 
     df["day_type"] = classify_day_type(df["date"])
 
-    grp = ["sku", "local_ccy", "channel", "date", "day_type"]
+    # ── Aggregate at COLOUR_NO level (folds in all sizes) ─────────────────────
+    grp = ["color_no", "local_ccy", "channel", "date", "day_type"]
 
     agg_all = df.groupby(grp, as_index=False).agg(total_qty=("qty", "sum"))
 
@@ -125,6 +128,7 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
         paid_qty      = ("qty",     "sum"),
         total_revenue = ("revenue", "sum"),
     )
+    # Weighted average price across all sizes at this colour on this day/channel
     agg_paid["avg_price"] = (agg_paid["total_revenue"] / agg_paid["paid_qty"]).round(2)
 
     agg = agg_all.merge(
@@ -134,17 +138,18 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
     agg["avg_price"] = agg["avg_price"].fillna(0)
     agg["date_str"]  = agg["date"].dt.strftime("%Y-%m-%d")
 
-    # Latest product name per (sku, country)
-    sku_names = (
-        df.sort_values("date")
-          .groupby(["sku", "local_ccy"])["product_name"].last()
+    # Representative product name per colour_no: highest-qty SKU name
+    color_names = (
+        df.groupby(["color_no", "local_ccy"])
+          .apply(lambda g: g.loc[g["qty"].idxmax(), "product_name"])
+          .reset_index(name="product_name")
     )
-    # SKU metadata (first occurrence per sku)
-    sku_attrs = (
-        df.dropna(subset=["sku"])
-          .sort_values("date")
-          .groupby("sku")[["color_no", "gender", "division", "rbu"]]
-          .last()
+
+    # Colour-level attribute lookup (1:1 by construction after metadata join)
+    color_attrs = (
+        df[df["color_no"] != df["sku"]]   # only properly mapped rows
+          .drop_duplicates(subset=["color_no"])
+          .set_index("color_no")[["gender", "division", "rbu"]]
     )
 
     global_min = agg["date"].min().strftime("%Y-%m-%d")
@@ -155,40 +160,39 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
         sub = agg[agg["local_ccy"] == ccy]
         raw = df[df["local_ccy"] == ccy]
 
-        sku_vol  = sub.groupby("sku")["total_qty"].sum().sort_values(ascending=False)
-        top_skus = sku_vol.head(top_n).index.tolist()
+        # Top N colours by total volume
+        color_vol  = sub.groupby("color_no")["total_qty"].sum().sort_values(ascending=False)
+        top_colors = color_vol.head(top_n).index.tolist()
 
-        # Build SKU metadata list
+        # Build colour metadata list
+        names_sub = color_names[color_names["local_ccy"] == ccy].set_index("color_no")["product_name"]
         meta = []
-        for s in top_skus:
-            try:   name = sku_names.loc[(s, ccy)]
-            except KeyError: name = s
-            attrs = sku_attrs.loc[s] if s in sku_attrs.index else {}
-            meta.append({
-                "sku":      s,
-                "name":     name or s,
-                "color":    attrs.get("color_no", "Unknown") if hasattr(attrs, 'get') else str(attrs.get("color_no", "Unknown") if isinstance(attrs, dict) else getattr(attrs, 'color_no', 'Unknown')),
-                "gender":   str(getattr(attrs, 'gender',   "Unknown")),
-                "division": str(getattr(attrs, 'division', "Unknown")),
-                "rbu":      str(getattr(attrs, 'rbu',      "Unknown")),
-            })
+        for cn in top_colors:
+            name = names_sub.get(cn, cn)
+            if cn in color_attrs.index:
+                attrs = color_attrs.loc[cn]
+                gender   = str(attrs.get("gender",   "Unknown") if isinstance(attrs, dict) else getattr(attrs, "gender",   "Unknown"))
+                division = str(attrs.get("division", "Unknown") if isinstance(attrs, dict) else getattr(attrs, "division", "Unknown"))
+                rbu      = str(attrs.get("rbu",      "Unknown") if isinstance(attrs, dict) else getattr(attrs, "rbu",      "Unknown"))
+            else:
+                gender = division = rbu = "Unknown"
+            meta.append({"cn": cn, "name": name or cn,
+                          "gender": gender, "division": division, "rbu": rbu})
 
         ccy_channels = sorted(raw["channel"].unique().tolist())
 
-        # All metadata option sets (only values present in this country's top SKUs)
         genders   = sorted(set(m["gender"]   for m in meta if m["gender"]   != "Unknown"))
         divisions = sorted(set(m["division"] for m in meta if m["division"] != "Unknown"))
         rbus      = sorted(set(m["rbu"]      for m in meta if m["rbu"]      != "Unknown"))
-        if "Unknown" in set(m["gender"] for m in meta):   genders.append("Unknown")
-        if "Unknown" in set(m["division"] for m in meta): divisions.append("Unknown")
-        if "Unknown" in set(m["rbu"] for m in meta):      rbus.append("Unknown")
+        if any(m["gender"]   == "Unknown" for m in meta): genders.append("Unknown")
+        if any(m["division"] == "Unknown" for m in meta): divisions.append("Unknown")
+        if any(m["rbu"]      == "Unknown" for m in meta): rbus.append("Unknown")
 
-        # Records with short keys
-        sub_top  = sub[sub["sku"].isin(top_skus)]
-        records  = []
+        sub_top = sub[sub["color_no"].isin(top_colors)]
+        records = []
         for row in sub_top.itertuples(index=False):
             records.append({
-                "s":  row.sku,
+                "cn": row.color_no,
                 "ch": row.channel,
                 "d":  row.date_str,
                 "t":  row.day_type,
@@ -202,18 +206,18 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
             "country":   COUNTRY_NAMES.get(ccy, ccy),
             "channels":  ccy_channels,
             "ch_labels": {ch: channel_label(ch, ccy_channels) for ch in ccy_channels},
-            "sku_meta":  meta,
-            "def_skus":  top_skus[:DEFAULT_SELECTED_SKUS],
+            "color_meta": meta,
+            "def_colors": top_colors[:DEFAULT_SELECTED_SKUS],
             "genders":   genders,
             "divisions": divisions,
             "rbus":      rbus,
             "records":   records,
             "min_date":  sub["date"].min().strftime("%Y-%m-%d"),
             "max_date":  sub["date"].max().strftime("%Y-%m-%d"),
-            "n_skus":    len(top_skus),
+            "n_colors":  len(top_colors),
             "n_records": len(records),
         }
-        print(f"  {ccy}: {len(top_skus)} SKUs, {len(records):,} records")
+        print(f"  {ccy}: {len(top_colors)} colours, {len(records):,} records")
 
     return {"countries": countries_data, "min_date": global_min, "max_date": global_max}
 
@@ -366,25 +370,19 @@ tr:hover td{background:var(--bg)}
       </div>
     </div>
   </div>
-  <div class="fg">
-    <div class="fl">Colour Code <span class="info" data-tip="Type a full or partial colour code (e.g. 077482 or _01) to narrow the SKU list below. Leave blank to show all colours.">i</span></div>
-    <input type="text" id="color-filter" placeholder="e.g. 077482 or _03"
-           style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:160px;font-family:monospace"
-           oninput="onColorFilter(this.value)">
-  </div>
 </div>
 
-<!-- Filter row 2: SKU + Day type + Date -->
+<!-- Filter row 2: Colour + Day type + Date -->
 <div class="filters">
   <div class="fg">
-    <div class="fl">SKU / Product <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— filtered by above</span></div>
+    <div class="fl">Colour / Product <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— filtered by above</span></div>
     <div class="sku-wrap">
       <button class="sku-btn" onclick="toggleSkuDrop()" id="sku-btn">
         <span id="sku-lbl">Loading…</span><span>▾</span>
       </button>
       <div class="sku-drop" id="sku-drop">
         <div class="sku-search">
-          <input id="sku-q" type="text" placeholder="Search by name, SKU, or colour code…" oninput="renderSkuList(this.value)">
+          <input id="sku-q" type="text" placeholder="Search by name or colour code…" oninput="renderSkuList(this.value)">
         </div>
         <div class="sku-actions">
           <button onclick="selectAll()">All visible</button>
@@ -416,9 +414,9 @@ tr:hover td{background:var(--bg)}
 </div>
 
 <div class="section-desc">
-  Top __N_SKUS__ SKUs by volume · <strong>D-day</strong> = mega sale campaigns (3.3–12.12) ·
+  Top __N_COLORS__ colours by volume · Each colour aggregates all sizes · <strong>D-day</strong> = mega sale campaigns (3.3–12.12) ·
   <strong>Special</strong> = mid-month (14–15) &amp; payday (last 4 days) · <strong>BAU</strong> = everything else.
-  Gender / Division / RBU filters narrow the SKU list above.
+  Gender / Division / RBU filters narrow the colour list above.
 </div>
 
 <div class="stats">
@@ -463,8 +461,7 @@ let selChannels = new Set(DATA.channels);
 let selGender   = new Set(DATA.genders);
 let selDivision = new Set(DATA.divisions);
 let selRBU      = new Set(DATA.rbus);
-let colorFilter = '';
-let sel         = new Set(DATA.def_skus.map(String));
+let sel         = new Set(DATA.def_colors.map(String));
 let selDT       = new Set(['D-day','Special','BAU']);
 let d0          = DATA.min_date;
 let d1          = DATA.max_date;
@@ -478,31 +475,22 @@ const PLTFONT = {family:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
 const PLTBG   = {paper_bgcolor:'white',plot_bgcolor:'white'};
 const GRID    = {showgrid:true,gridcolor:'#f3f4f6'};
 
-// ── SKU lookup helpers ────────────────────────────────────────────────────────
-const SKU_MAP = {};
-DATA.sku_meta.forEach(m=>{ SKU_MAP[m.sku]=m; });
-function skuInfo(sku){ return SKU_MAP[sku]||{sku,name:sku,color:'',gender:'',division:'',rbu:''}; }
+// ── Colour lookup helpers ─────────────────────────────────────────────────────
+const COLOR_MAP = {};
+DATA.color_meta.forEach(m=>{ COLOR_MAP[m.cn]=m; });
+function colorInfo(cn){ return COLOR_MAP[cn]||{cn,name:cn,gender:'',division:'',rbu:''}; }
 
-// ── Visible SKUs (intersection of all metadata filters) ──────────────────────
-function visibleSkus(){
-  const cf = colorFilter.toLowerCase();
-  return DATA.sku_meta
+// ── Visible colours (intersection of metadata filters) ────────────────────────
+function visibleColors(){
+  return DATA.color_meta
     .filter(m=>
       (selGender.has(m.gender)||selGender.has('Unknown'))&&
       (selDivision.has(m.division)||selDivision.has('Unknown'))&&
-      (selRBU.has(m.rbu)||selRBU.has('Unknown'))&&
-      (!cf || (m.color||'').toLowerCase().includes(cf))
+      (selRBU.has(m.rbu)||selRBU.has('Unknown'))
     )
-    .map(m=>m.sku);
+    .map(m=>m.cn);
 }
-
-// ── Colour code filter ────────────────────────────────────────────────────────
-function onColorFilter(val){
-  colorFilter = val.trim();
-  renderSkuList(document.getElementById('sku-q').value);
-  updateAll();
-}
-function visibleSkuSet(){ return new Set(visibleSkus()); }
+function visibleColorSet(){ return new Set(visibleColors()); }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 function init(){
@@ -511,7 +499,7 @@ function init(){
   s0.value=DATA.min_date; s1.value=DATA.max_date;
 
   document.getElementById('data-summary').textContent=
-    `${DATA.n_records.toLocaleString()} daily aggregates · top ${DATA.n_skus} SKUs · ${DATA.min_date} → ${DATA.max_date}`;
+    `${DATA.n_records.toLocaleString()} daily aggregates · top ${DATA.n_colors} colours · ${DATA.min_date} → ${DATA.max_date}`;
 
   renderChannelFilter();
   renderMetaFilter('gender-filter', DATA.genders, selGender, toggleGender);
@@ -592,24 +580,22 @@ function updRbuBtn(){
     `${selRBU.size} selected`;
 }
 
-// ── SKU multi-select ──────────────────────────────────────────────────────────
+// ── Colour multi-select ───────────────────────────────────────────────────────
 function renderSkuList(q){
   const lq=q.toLowerCase();
-  const vis=visibleSkuSet();
-  const items=DATA.sku_meta.filter(m=>
-    vis.has(m.sku) &&
-    (!q || m.sku.toLowerCase().includes(lq) ||
-           m.name.toLowerCase().includes(lq) ||
-           (m.color||'').toLowerCase().includes(lq))
+  const vis=visibleColorSet();
+  const items=DATA.color_meta.filter(m=>
+    vis.has(m.cn) &&
+    (!q || m.cn.toLowerCase().includes(lq) || m.name.toLowerCase().includes(lq))
   );
   document.getElementById('sku-list').innerHTML=items.length===0
-    ?'<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No SKUs match current filters</div>'
+    ?'<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No colours match current filters</div>'
     :items.map(m=>`
       <label class="sku-item">
-        <input type="checkbox" value="${m.sku}" ${sel.has(m.sku)?'checked':''} onchange="onSku('${m.sku}',this.checked)">
+        <input type="checkbox" value="${m.cn}" ${sel.has(m.cn)?'checked':''} onchange="onSku('${m.cn}',this.checked)">
         <div>
-          <div class="sku-name">${m.name||m.sku}</div>
-          <div class="sku-sub">${m.sku}${m.color&&m.color!=='Unknown'?' · '+m.color:''}</div>
+          <div class="sku-name">${m.name||m.cn}</div>
+          <div class="sku-sub">${m.cn}</div>
           <div class="sku-tags">
             ${m.gender&&m.gender!=='Unknown'?`<span class="sku-tag">${m.gender}</span>`:''}
             ${m.division&&m.division!=='Unknown'?`<span class="sku-tag">${m.division}</span>`:''}
@@ -620,15 +606,15 @@ function renderSkuList(q){
   updSkuBtn();
 }
 function toggleSkuDrop(){ document.getElementById('sku-drop').classList.toggle('open'); }
-function onSku(s,c){ c?sel.add(s):sel.delete(s); updSkuBtn(); updateAll(); }
-function selectAll(){ visibleSkus().forEach(s=>sel.add(s)); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
+function onSku(cn,c){ c?sel.add(cn):sel.delete(cn); updSkuBtn(); updateAll(); }
+function selectAll(){ visibleColors().forEach(cn=>sel.add(cn)); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
 function clearAll(){  sel.clear(); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
-function resetDefault(){ sel=new Set(DATA.def_skus.map(String)); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
+function resetDefault(){ sel=new Set(DATA.def_colors.map(String)); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
 function updSkuBtn(){
-  const active=[...sel].filter(s=>visibleSkuSet().has(s));
+  const active=[...sel].filter(cn=>visibleColorSet().has(cn));
   const lbl=active.length===0?'None selected'
-    :active.length===1?(skuInfo(active[0]).name||active[0])
-    :`${active.length} SKUs selected`;
+    :active.length===1?(colorInfo(active[0]).name||active[0])
+    :`${active.length} colours selected`;
   const el=document.getElementById('sku-lbl');
   el.textContent=lbl.length>35?lbl.slice(0,33)+'…':lbl;
 }
@@ -653,11 +639,11 @@ function onDate(){
 
 // ── Main filter ───────────────────────────────────────────────────────────────
 function filtered(){
-  const vis=visibleSkuSet();
+  const vis=visibleColorSet();
   return DATA.records.filter(r=>
     selChannels.has(r.ch) &&
-    sel.has(r.s) &&
-    vis.has(r.s) &&
+    sel.has(r.cn) &&
+    vis.has(r.cn) &&
     selDT.has(r.t) &&
     r.d>=d0 && r.d<=d1
   );
@@ -673,24 +659,24 @@ function ols(prices,qtys){
   return vp>0?cov/vp:null;
 }
 
-function elBySku(recs){
+function elByColor(recs){
   const m={};
   recs.forEach(r=>{
-    if(!m[r.s])m[r.s]={p:[],q:[],totalQty:0,paidQty:0,rev:0};
-    m[r.s].totalQty+=r.tq;
+    if(!m[r.cn])m[r.cn]={p:[],q:[],totalQty:0,paidQty:0,rev:0};
+    m[r.cn].totalQty+=r.tq;
     if(r.pq>0){
-      m[r.s].p.push(r.p);m[r.s].q.push(r.pq);
-      m[r.s].paidQty+=r.pq;m[r.s].rev+=r.p*r.pq;
+      m[r.cn].p.push(r.p);m[r.cn].q.push(r.pq);
+      m[r.cn].paidQty+=r.pq;m[r.cn].rev+=r.p*r.pq;
     }
   });
-  return Object.entries(m).map(([sku,d])=>{
-    const info=skuInfo(sku);
+  return Object.entries(m).map(([cn,d])=>{
+    const info=colorInfo(cn);
     return {
-      sku,name:info.name||sku,color:info.color||'',
-      gender:info.gender||'',division:info.division||'',rbu:info.rbu||'',
+      cn, name:info.name||cn,
+      gender:info.gender||'', division:info.division||'', rbu:info.rbu||'',
       elasticity:ols(d.p,d.q),
       avg_price:d.paidQty>0?d.rev/d.paidQty:0,
-      total_qty:d.totalQty,data_points:d.p.length
+      total_qty:d.totalQty, data_points:d.p.length
     };
   }).filter(r=>r.elasticity!==null);
 }
@@ -707,7 +693,7 @@ function pReact(id,traces,layout,cfg){
 
 // ── Update all ────────────────────────────────────────────────────────────────
 function updateAll(){
-  const f=filtered(),el=elBySku(f);
+  const f=filtered(),el=elByColor(f);
   updStats(f,el); updTable(el); updScatter(f,el); updTS(f); updDT(f);
 }
 
@@ -725,28 +711,28 @@ function updStats(f,el){
 // ── Scatter ───────────────────────────────────────────────────────────────────
 function updScatter(f,el){
   if(!f.length){ pReact('ch-scatter',[],{height:360,...PLTBG,font:PLTFONT,annotations:[{text:'No data',showarrow:false,xref:'paper',yref:'paper',x:.5,y:.5,font:{size:14,color:'#9ca3af'}}]}); return; }
-  const bySkuPrice={};
+  const byColorPrice={};
   f.forEach(r=>{
     if(r.pq===0)return;
-    const p=Math.round(r.p),key=`${r.s}||${p}`;
-    if(!bySkuPrice[key])bySkuPrice[key]={sku:r.s,price:p,qty:0,days:0};
-    bySkuPrice[key].qty+=r.pq; bySkuPrice[key].days+=1;
+    const p=Math.round(r.p),key=`${r.cn}||${p}`;
+    if(!byColorPrice[key])byColorPrice[key]={cn:r.cn,price:p,qty:0,days:0};
+    byColorPrice[key].qty+=r.pq; byColorPrice[key].days+=1;
   });
-  const pts=Object.values(bySkuPrice);
-  const bySku={};
+  const pts=Object.values(byColorPrice);
+  const byColor={};
   pts.forEach(p=>{
-    if(!bySku[p.sku])bySku[p.sku]={x:[],y:[],t:[]};
-    bySku[p.sku].x.push(p.price); bySku[p.sku].y.push(p.qty);
-    const nm=skuInfo(p.sku).name||p.sku; const short=nm.length>30?nm.slice(0,28)+'…':nm;
-    bySku[p.sku].t.push(`${short}<br>${p.sku}<br>Price: ${p.price.toLocaleString()}<br>Qty: ${p.qty.toLocaleString()}<br>Days: ${p.days}`);
+    if(!byColor[p.cn])byColor[p.cn]={x:[],y:[],t:[]};
+    byColor[p.cn].x.push(p.price); byColor[p.cn].y.push(p.qty);
+    const nm=colorInfo(p.cn).name||p.cn; const short=nm.length>30?nm.slice(0,28)+'…':nm;
+    byColor[p.cn].t.push(`${short}<br>${p.cn}<br>Price: ${p.price.toLocaleString()}<br>Qty: ${p.qty.toLocaleString()}<br>Days: ${p.days}`);
   });
-  const traces=Object.entries(bySku).map(([sku,d])=>{
-    const nm=skuInfo(sku).name||sku;
+  const traces=Object.entries(byColor).map(([cn,d])=>{
+    const nm=colorInfo(cn).name||cn;
     return {type:'scatter',mode:'markers',name:nm.length>22?nm.slice(0,20)+'…':nm,
       x:d.x,y:d.y,text:d.t,hoverinfo:'text',marker:{opacity:.75,size:7}};
   });
-  el.forEach(({sku,elasticity})=>{
-    const sp=pts.filter(p=>p.sku===sku&&p.qty>0);
+  el.forEach(({cn,elasticity})=>{
+    const sp=pts.filter(p=>p.cn===cn&&p.qty>0);
     if(sp.length<2)return;
     const ps=sp.map(p=>p.price),mn=Math.min(...ps),mx=Math.max(...ps);
     if(mn===mx)return;
@@ -755,7 +741,7 @@ function updScatter(f,el){
     traces.push({type:'scatter',mode:'lines',name:`e=${elasticity.toFixed(2)}`,
       x:[mn,mx],y:[Math.exp(mlq+elasticity*(Math.log(mn)-mlp)),Math.exp(mlq+elasticity*(Math.log(mx)-mlp))],
       line:{width:1.5,dash:'dot'},showlegend:sel.size<=4,
-      hovertemplate:`${sku}<br>Elasticity: ${elasticity.toFixed(2)}<extra></extra>`});
+      hovertemplate:`${cn}<br>Elasticity: ${elasticity.toFixed(2)}<extra></extra>`});
   });
   pReact('ch-scatter',traces,{height:360,margin:{t:10,r:10,b:50,l:60},
     xaxis:{title:'Price',type:'log',...GRID},
@@ -826,8 +812,8 @@ function updDT(f){
   const order=['D-day','Special','BAU'],byDT={};
   f.forEach(r=>{
     if(!byDT[r.t])byDT[r.t]={};
-    if(!byDT[r.t][r.s])byDT[r.t][r.s]={p:[],q:[]};
-    byDT[r.t][r.s].p.push(r.p); byDT[r.t][r.s].q.push(r.tq);
+    if(!byDT[r.t][r.cn])byDT[r.t][r.cn]={p:[],q:[]};
+    byDT[r.t][r.cn].p.push(r.p); byDT[r.t][r.cn].q.push(r.tq);
   });
   const vals={};
   order.forEach(dt=>{
@@ -1021,7 +1007,7 @@ CARD_TEMPLATE = r"""
     <span class="tag">__N_CHANNELS__ ch</span>
   </div>
   <div class="card-stats">
-    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">__N_SKUS__</div></div>
+    <div><div class="card-stat-lbl">Colours</div><div class="card-stat-val">__N_COLORS__</div></div>
     <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">__N_RECORDS__</div></div>
   </div>
   <div class="card-date">__MIN_DATE__ → __MAX_DATE__</div>
@@ -1043,16 +1029,16 @@ def generate_country_html(cdata: dict, plotly_js: str) -> str:
                             or True}, default=str, ensure_ascii=False)
     # strip keys not needed in JS
     js_data = {k: cdata[k] for k in
-               ["channels","ch_labels","sku_meta","def_skus",
+               ["channels","ch_labels","color_meta","def_colors",
                 "genders","divisions","rbus","records",
-                "min_date","max_date","n_skus","n_records"]}
+                "min_date","max_date","n_colors","n_records"]}
     data_json = json.dumps(js_data, default=str, ensure_ascii=False)
     html = COUNTRY_HTML
     html = html.replace("__PLOTLY_JS__", plotly_js)
     html = html.replace("__DATA_JSON__",  data_json)
     html = html.replace("__CCY__",        cdata["ccy"])
     html = html.replace("__COUNTRY__",    cdata["country"])
-    html = html.replace("__N_SKUS__",     str(cdata["n_skus"]))
+    html = html.replace("__N_COLORS__",   str(cdata["n_colors"]))
     return html
 
 
@@ -1065,7 +1051,7 @@ def generate_index_html(all_data: dict, top_n: int) -> str:
         c = c.replace("__CCY__",        ccy)
         c = c.replace("__COUNTRY__",    d["country"])
         c = c.replace("__N_CHANNELS__", str(len(d["channels"])))
-        c = c.replace("__N_SKUS__",     f'{d["n_skus"]:,}')
+        c = c.replace("__N_COLORS__",   f'{d["n_colors"]:,}')
         c = c.replace("__N_RECORDS__",  f'{d["n_records"]:,}')
         c = c.replace("__MIN_DATE__",   d["min_date"])
         c = c.replace("__MAX_DATE__",   d["max_date"])
