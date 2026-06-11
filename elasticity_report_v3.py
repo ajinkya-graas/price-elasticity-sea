@@ -332,7 +332,7 @@ tr:hover td{background:var(--bg)}
     <a href="elasticity_index.html" class="back-btn">← All Markets</a>
     <div>
       <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-weight:900;font-size:15px;letter-spacing:.1em;color:#1f2937">PUMA</span>
+        <svg width="38" height="30" viewBox="0 0 220 168" xmlns="http://www.w3.org/2000/svg"><path d="M172,6 C180,4 191,9 194,18 C197,27 191,38 181,39 C175,40 169,36 166,30 C160,39 155,51 152,64 C158,60 165,60 169,66 C169,76 160,79 153,73 C149,70 148,65 145,69 C138,66 135,57 139,48 C128,52 116,54 105,49 C102,59 104,70 102,77 C95,77 91,70 93,62 C91,55 94,47 98,41 C86,37 77,28 81,17 C85,6 100,3 110,9 C119,-1 136,-3 150,4 C157,-1 165,-2 172,6 Z" fill="#1f2937"/><text x="110" y="148" text-anchor="middle" font-family="Arial Black,Impact,sans-serif" font-weight="900" font-size="46" letter-spacing="12" fill="#1f2937">PUMA</text></svg>
         <h1>Price Elasticity Dashboard</h1>
         <span class="ccy-badge">__CCY__</span>
         <span style="color:var(--muted);font-size:13px">__COUNTRY__</span>
@@ -341,11 +341,20 @@ tr:hover td{background:var(--bg)}
     </div>
   </div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-    <div style="font-size:9px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">Powered by</div>
-    <div style="display:flex;align-items:center;gap:5px">
-      <div style="width:22px;height:22px;background:linear-gradient(135deg,#22d3ee,#3b82f6);border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:#fff">G</div>
-      <span style="font-size:15px;font-weight:700;color:#1f2937;letter-spacing:-.02em">raas</span>
-    </div>
+    <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Powered by</div>
+    <svg width="80" height="32" viewBox="0 0 220 90" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="ct" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00E5FF"/><stop offset="100%" stop-color="#00B4D8"/></linearGradient>
+        <linearGradient id="cl" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#0099FF"/><stop offset="100%" stop-color="#2255EE"/></linearGradient>
+        <linearGradient id="cr" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#2255EE"/><stop offset="100%" stop-color="#1133CC"/></linearGradient>
+      </defs>
+      <polygon points="45,8 82,28 45,48 8,28" fill="url(#ct)"/>
+      <polygon points="8,28 45,48 45,82 8,62" fill="url(#cl)"/>
+      <polygon points="45,48 82,28 82,62 45,82" fill="url(#cr)"/>
+      <polygon points="8,35 45,55 45,48 8,28" fill="white" opacity="0.25"/>
+      <polygon points="45,48 82,28 82,35 45,55" fill="white" opacity="0.15"/>
+      <text x="100" y="62" font-family="Arial,sans-serif" font-weight="700" font-size="48" fill="#1f2937" letter-spacing="-1">raas</text>
+    </svg>
     <div style="font-size:9px;color:var(--muted)">AI-driven commerce analytics</div>
   </div>
 </div>
@@ -868,18 +877,15 @@ INDEX_HTML = r"""<!DOCTYPE html>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 
 /* Header */
-.hdr{background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 60%,#1d4ed8 100%);padding:20px 32px;color:#fff}
+.hdr{background:#fff;border-bottom:2px solid #e5e7eb;padding:14px 32px}
 .hdr-inner{display:flex;align-items:center;justify-content:space-between;max-width:1040px;margin:0 auto}
-.hdr-brand{display:flex;align-items:center;gap:16px}
-.puma-wordmark{font-size:26px;font-weight:900;letter-spacing:.12em;color:#fff;line-height:1}
-.hdr-titles h1{font-size:18px;font-weight:700;letter-spacing:-.01em;margin:0}
-.hdr-sub{font-size:12px;margin-top:3px;opacity:.75}
-.graas-brand{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
-.powered-lbl{font-size:10px;opacity:.6;letter-spacing:.06em;text-transform:uppercase}
-.graas-logo{display:flex;align-items:center;gap:6px}
-.graas-g{width:28px;height:28px;background:linear-gradient(135deg,#22d3ee,#3b82f6);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;letter-spacing:0}
-.graas-name{font-size:18px;font-weight:700;letter-spacing:-.02em;color:#fff}
-.graas-tagline{font-size:10px;opacity:.55;text-align:right}
+.hdr-brand{display:flex;align-items:center;gap:20px}
+.hdr-divider{width:1px;height:36px;background:#e5e7eb}
+.hdr-titles h1{font-size:17px;font-weight:700;color:#1f2937;letter-spacing:-.01em;margin:0}
+.hdr-sub{font-size:11px;margin-top:3px;color:#6b7280}
+.graas-side{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.powered-lbl{font-size:9px;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase}
+.graas-tagline{font-size:9px;color:#9ca3af;text-align:right}
 
 /* Main layout */
 .main{max-width:1040px;margin:0 auto;padding:24px 24px 40px}
@@ -941,18 +947,54 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="hdr">
   <div class="hdr-inner">
     <div class="hdr-brand">
-      <div class="puma-wordmark">PUMA</div>
+      <!-- Puma logo SVG -->
+      <svg width="68" height="52" viewBox="0 0 220 168" xmlns="http://www.w3.org/2000/svg">
+        <path d="M172,6 C180,4 191,9 194,18 C197,27 191,38 181,39 C175,40 169,36 166,30
+                 C160,39 155,51 152,64 C158,60 165,60 169,66 C169,76 160,79 153,73
+                 C149,70 148,65 145,69 C138,66 135,57 139,48 C128,52 116,54 105,49
+                 C102,59 104,70 102,77 C95,77 91,70 93,62 C91,55 94,47 98,41
+                 C86,37 77,28 81,17 C85,6 100,3 110,9 C119,-1 136,-3 150,4
+                 C157,-1 165,-2 172,6 Z" fill="black"/>
+        <text x="110" y="148" text-anchor="middle" font-family="Arial Black,Impact,sans-serif"
+              font-weight="900" font-size="46" letter-spacing="12" fill="black">PUMA</text>
+      </svg>
+      <div class="hdr-divider"></div>
       <div class="hdr-titles">
         <h1>Price Elasticity Dashboard</h1>
         <div class="hdr-sub">__GLOBAL_DATE__ &nbsp;·&nbsp; __N_COUNTRIES__ markets &nbsp;·&nbsp; Top __TOP_N__ colours per market</div>
       </div>
     </div>
-    <div class="graas-brand">
+    <div class="graas-side">
       <div class="powered-lbl">Powered by</div>
-      <div class="graas-logo">
-        <div class="graas-g">G</div>
-        <div class="graas-name">raas</div>
-      </div>
+      <!-- Graas logo SVG — isometric cube with cyan-blue gradient -->
+      <svg width="90" height="38" viewBox="0 0 220 90" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="gtop" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#00E5FF"/>
+            <stop offset="100%" stop-color="#00B4D8"/>
+          </linearGradient>
+          <linearGradient id="gleft" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#0099FF"/>
+            <stop offset="100%" stop-color="#2255EE"/>
+          </linearGradient>
+          <linearGradient id="gright" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#2255EE"/>
+            <stop offset="100%" stop-color="#1133CC"/>
+          </linearGradient>
+        </defs>
+        <!-- Top face -->
+        <polygon points="45,8 82,28 45,48 8,28" fill="url(#gtop)"/>
+        <!-- Left face -->
+        <polygon points="8,28 45,48 45,82 8,62" fill="url(#gleft)"/>
+        <!-- Right face -->
+        <polygon points="45,48 82,28 82,62 45,82" fill="url(#gright)"/>
+        <!-- White bar stripes -->
+        <polygon points="8,35 45,55 45,48 8,28" fill="white" opacity="0.25"/>
+        <polygon points="45,48 82,28 82,35 45,55" fill="white" opacity="0.15"/>
+        <!-- Graas wordmark -->
+        <text x="100" y="62" font-family="Arial,sans-serif" font-weight="700"
+              font-size="48" fill="#1f2937" letter-spacing="-1">raas</text>
+      </svg>
       <div class="graas-tagline">AI-driven commerce analytics</div>
     </div>
   </div>
