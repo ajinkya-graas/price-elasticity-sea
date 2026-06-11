@@ -24,7 +24,7 @@ import pandas as pd
 D_DAYS = {(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12)}
 MIN_POINTS_FOR_ELASTICITY = 5
 TOP_SKUS_PER_COUNTRY      = 500
-DEFAULT_SELECTED_SKUS     = 1
+DEFAULT_SELECTED_SKUS     = 5
 
 COUNTRY_NAMES = {
     "PHP": "Philippines", "IDR": "Indonesia", "MYR": "Malaysia",
@@ -329,15 +329,24 @@ tr:hover td{background:var(--bg)}
 
 <div class="hdr">
   <div class="hdr-left">
-    <a href="elasticity_index.html" class="back-btn">← All Countries</a>
+    <a href="elasticity_index.html" class="back-btn">← All Markets</a>
     <div>
       <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-weight:900;font-size:15px;letter-spacing:.1em;color:#1f2937">PUMA</span>
         <h1>Price Elasticity Dashboard</h1>
         <span class="ccy-badge">__CCY__</span>
         <span style="color:var(--muted);font-size:13px">__COUNTRY__</span>
       </div>
       <div class="hdr-sub" id="data-summary">Loading…</div>
     </div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+    <div style="font-size:9px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">Powered by</div>
+    <div style="display:flex;align-items:center;gap:5px">
+      <div style="width:22px;height:22px;background:linear-gradient(135deg,#22d3ee,#3b82f6);border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:#fff">G</div>
+      <span style="font-size:15px;font-weight:700;color:#1f2937;letter-spacing:-.02em">raas</span>
+    </div>
+    <div style="font-size:9px;color:var(--muted)">AI-driven commerce analytics</div>
   </div>
 </div>
 
@@ -607,7 +616,12 @@ function renderSkuList(q){
 }
 function toggleSkuDrop(){ document.getElementById('sku-drop').classList.toggle('open'); }
 function onSku(cn,c){ c?sel.add(cn):sel.delete(cn); updSkuBtn(); updateAll(); }
-function selectAll(){ visibleColors().forEach(cn=>sel.add(cn)); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
+function selectAll(){
+  const q=document.getElementById('sku-q').value.toLowerCase();
+  const vis=visibleColorSet();
+  DATA.color_meta.filter(m=>vis.has(m.cn)&&(!q||m.cn.toLowerCase().includes(q)||m.name.toLowerCase().includes(q))).forEach(m=>sel.add(m.cn));
+  renderSkuList(document.getElementById('sku-q').value); updateAll();
+}
 function clearAll(){  sel.clear(); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
 function resetDefault(){ sel=new Set(DATA.def_colors.map(String)); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
 function updSkuBtn(){
@@ -728,21 +742,24 @@ function updScatter(f,el){
   });
   const traces=[{type:'scatter',mode:'markers',name:'Data',showlegend:false,
     x:xs,y:ys,text:ts,hoverinfo:'text',marker:{color:'#3b82f6',opacity:.5,size:6}}];
-  // overall OLS line across all combined points
+  // overall OLS in log-log space, then draw as smooth power-law curve on linear axes
   const lps=pts.map(p=>Math.log(p.price)),lqs=pts.map(p=>Math.log(p.qty));
   const n=lps.length,slp=lps.reduce((a,b)=>a+b,0)/n,slq=lqs.reduce((a,b)=>a+b,0)/n;
   const num=lps.reduce((s,lp,i)=>s+(lp-slp)*(lqs[i]-slq),0);
   const den=lps.reduce((s,lp)=>s+(lp-slp)**2,0);
   if(den>0&&n>=5){
     const e=num/den,mn=Math.min(...pts.map(p=>p.price)),mx=Math.max(...pts.map(p=>p.price));
+    // 100 evenly-spaced points → smooth curve in linear space
+    const cx=Array.from({length:100},(_,i)=>mn+(mx-mn)*i/99);
+    const cy=cx.map(p=>Math.exp(slq+e*(Math.log(p)-slp)));
     traces.push({type:'scatter',mode:'lines',name:`Overall e=${e.toFixed(2)}`,
-      x:[mn,mx],y:[Math.exp(slq+e*(Math.log(mn)-slp)),Math.exp(slq+e*(Math.log(mx)-slp))],
-      line:{color:'#dc2626',width:2,dash:'dot'},
-      hovertemplate:`Overall elasticity: ${e.toFixed(2)}<extra></extra>`});
+      x:cx,y:cy,
+      line:{color:'#dc2626',width:2.5,shape:'spline',smoothing:1.3},
+      hovertemplate:`Price: %{x:,.0f}<br>Fitted Qty: %{y:,.0f}<br>Elasticity: ${e.toFixed(2)}<extra></extra>`});
   }
   pReact('ch-scatter',traces,{height:360,margin:{t:10,r:10,b:50,l:60},
-    xaxis:{title:'Price',type:'log',...GRID},
-    yaxis:{title:'Total Quantity Sold',type:'log',...GRID},
+    xaxis:{title:'Price',...GRID},
+    yaxis:{title:'Total Quantity Sold',...GRID},
     legend:{orientation:'h',y:-0.22},...PLTBG,font:PLTFONT});
 }
 
@@ -760,6 +777,7 @@ function updTable(el){
     :`<div class="tbl-wrap"><table>
       <thead><tr>
         <th onclick="sort('name')">Product${si('name')}</th>
+        <th onclick="sort('cn')">Colour No${si('cn')}</th>
         <th onclick="sort('division')">Division${si('division')}</th>
         <th onclick="sort('rbu')">RBU${si('rbu')}</th>
         <th onclick="sort('gender')">Gender${si('gender')}</th>
@@ -770,6 +788,7 @@ function updTable(el){
       </tr></thead>
       <tbody>${s.map(r=>`<tr>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name}">${r.name}</td>
+        <td style="font-family:monospace;font-size:10px;color:var(--muted)">${r.cn}</td>
         <td style="font-size:11px;color:var(--muted)">${r.division||'—'}</td>
         <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.rbu||''}">${r.rbu||'—'}</td>
         <td style="font-size:11px;color:var(--muted)">${r.gender||'—'}</td>
@@ -849,9 +868,18 @@ INDEX_HTML = r"""<!DOCTYPE html>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 
 /* Header */
-.hdr{background:linear-gradient(135deg,#1e40af 0%,#2563eb 100%);padding:22px 32px 20px;color:#fff}
-.hdr h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
-.hdr-sub{font-size:13px;margin-top:4px;opacity:.8}
+.hdr{background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 60%,#1d4ed8 100%);padding:20px 32px;color:#fff}
+.hdr-inner{display:flex;align-items:center;justify-content:space-between;max-width:1040px;margin:0 auto}
+.hdr-brand{display:flex;align-items:center;gap:16px}
+.puma-wordmark{font-size:26px;font-weight:900;letter-spacing:.12em;color:#fff;line-height:1}
+.hdr-titles h1{font-size:18px;font-weight:700;letter-spacing:-.01em;margin:0}
+.hdr-sub{font-size:12px;margin-top:3px;opacity:.75}
+.graas-brand{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.powered-lbl{font-size:10px;opacity:.6;letter-spacing:.06em;text-transform:uppercase}
+.graas-logo{display:flex;align-items:center;gap:6px}
+.graas-g{width:28px;height:28px;background:linear-gradient(135deg,#22d3ee,#3b82f6);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:#fff;letter-spacing:0}
+.graas-name{font-size:18px;font-weight:700;letter-spacing:-.02em;color:#fff}
+.graas-tagline{font-size:10px;opacity:.55;text-align:right}
 
 /* Main layout */
 .main{max-width:1040px;margin:0 auto;padding:24px 24px 40px}
@@ -907,13 +935,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .interp-desc{font-size:11px;color:#374151;line-height:1.5}
 .note{font-size:12px;color:var(--muted);background:#f9fafb;border-left:3px solid var(--border);padding:8px 12px;border-radius:0 5px 5px 0;margin-top:12px;line-height:1.6}
 
-.footer{text-align:center;color:var(--muted);font-size:12px;padding:20px 0 0}
 </style>
 </head>
 <body>
 <div class="hdr">
-  <h1>Price Elasticity Dashboard</h1>
-  <div class="hdr-sub">__GLOBAL_DATE__ · __TOTAL_RECORDS__ records across __N_COUNTRIES__ markets · Top __TOP_N__ SKUs per market</div>
+  <div class="hdr-inner">
+    <div class="hdr-brand">
+      <div class="puma-wordmark">PUMA</div>
+      <div class="hdr-titles">
+        <h1>Price Elasticity Dashboard</h1>
+        <div class="hdr-sub">__GLOBAL_DATE__ &nbsp;·&nbsp; __N_COUNTRIES__ markets &nbsp;·&nbsp; Top __TOP_N__ colours per market</div>
+      </div>
+    </div>
+    <div class="graas-brand">
+      <div class="powered-lbl">Powered by</div>
+      <div class="graas-logo">
+        <div class="graas-g">G</div>
+        <div class="graas-name">raas</div>
+      </div>
+      <div class="graas-tagline">AI-driven commerce analytics</div>
+    </div>
+  </div>
 </div>
 <div class="main">
 
@@ -977,7 +1019,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
   </div>
 
-  <div class="footer">Powered by log-log OLS regression · Filters computed client-side in browser</div>
 </div>
 <script>
 function toggleExp(){
@@ -1003,7 +1044,7 @@ CARD_TEMPLATE = r"""
   </div>
   <div class="card-stats">
     <div><div class="card-stat-lbl">Colours</div><div class="card-stat-val">__N_COLORS__</div></div>
-    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">__N_RECORDS__</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">__N_RECORDS__</div></div>
   </div>
   <div class="card-date">__MIN_DATE__ → __MAX_DATE__</div>
   <div class="open-btn">Open Dashboard →</div>
