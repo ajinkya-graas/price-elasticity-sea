@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Price Elasticity Dashboard</title>
+<style>
+:root{--bg:#f0f4f8;--card:#fff;--border:#dee2e6;--primary:#2563eb;--text:#1f2937;--muted:#6b7280}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* Header */
+.hdr{background:linear-gradient(135deg,#1e40af 0%,#2563eb 100%);padding:22px 32px 20px;color:#fff}
+.hdr h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.hdr-sub{font-size:13px;margin-top:4px;opacity:.8}
+
+/* Main layout */
+.main{max-width:1040px;margin:0 auto;padding:24px 24px 40px}
+
+/* Country grid — shown first, above fold */
+.section-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px}
+@media(max-width:680px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:420px){.grid{grid-template-columns:1fr}}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;text-decoration:none;color:inherit;display:block;transition:all .15s;position:relative;overflow:hidden}
+.card:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(37,99,235,.12);transform:translateY(-2px)}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--primary);opacity:0;transition:opacity .15s}
+.card:hover::before{opacity:1}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between}
+.card-ccy{font-size:28px;font-weight:800;color:var(--primary);line-height:1}
+.card-country{font-size:13px;font-weight:600;color:var(--text);margin-top:3px}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:#eff6ff;color:var(--primary)}
+.card-stats{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}
+.card-stat-lbl{font-size:10px;color:var(--muted)}
+.card-stat-val{font-size:13px;font-weight:600;color:var(--text)}
+.card-date{font-size:10px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.open-btn{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:500;color:var(--primary);background:#f8faff;transition:all .12s}
+.card:hover .open-btn{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+/* Explainer — collapsible, below the fold */
+.explainer-toggle{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:14px 18px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:0;user-select:none}
+.explainer-toggle:hover{border-color:#94a3b8}
+.explainer-toggle h2{font-size:14px;font-weight:600;color:var(--text)}
+.explainer-toggle .arrow{font-size:13px;color:var(--muted);transition:transform .2s}
+.explainer-toggle.open .arrow{transform:rotate(180deg)}
+.explainer-body{background:var(--card);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;padding:20px 22px;display:none}
+.explainer-body.open{display:block}
+
+.explainer-body p{font-size:13px;color:#374151;line-height:1.7;margin-bottom:10px}
+.explainer-body p:last-child{margin-bottom:0}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}
+@media(max-width:700px){.steps{grid-template-columns:1fr 1fr}}
+.step{background:#f8faff;border:1px solid #dbeafe;border-radius:8px;padding:12px}
+.step-num{font-size:10px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.06em}
+.step-title{font-size:12px;font-weight:600;color:var(--text);margin:3px 0}
+.step-desc{font-size:11px;color:var(--muted);line-height:1.5}
+.interp{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+@media(max-width:600px){.interp{grid-template-columns:1fr}}
+.interp-card{border-radius:7px;padding:12px 14px}
+.interp-card.elastic{background:#fef2f2;border:1px solid #fecaca}
+.interp-card.inelastic{background:#f0fdf4;border:1px solid #bbf7d0}
+.interp-card.positive{background:#fffbeb;border:1px solid #fde68a}
+.interp-title{font-size:12px;font-weight:700;margin-bottom:4px}
+.interp-card.elastic .interp-title{color:#dc2626}
+.interp-card.inelastic .interp-title{color:#16a34a}
+.interp-card.positive .interp-title{color:#d97706}
+.interp-desc{font-size:11px;color:#374151;line-height:1.5}
+.note{font-size:12px;color:var(--muted);background:#f9fafb;border-left:3px solid var(--border);padding:8px 12px;border-radius:0 5px 5px 0;margin-top:12px;line-height:1.6}
+
+.footer{text-align:center;color:var(--muted);font-size:12px;padding:20px 0 0}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>Price Elasticity Dashboard</h1>
+  <div class="hdr-sub">2024-01-01 → 2026-06-09 · 456,897 records across 6 markets · Top 500 SKUs per market</div>
+</div>
+<div class="main">
+
+  <div class="section-label">Select a market</div>
+  <div class="grid">
+    
+<a href="elasticity_IDR.html" class="card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy">IDR</div>
+      <div class="card-country">Indonesia</div>
+    </div>
+    <span class="tag">8 ch</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">500</div></div>
+    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">92,347</div></div>
+  </div>
+  <div class="card-date">2024-01-04 → 2026-06-09</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_MYR.html" class="card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy">MYR</div>
+      <div class="card-country">Malaysia</div>
+    </div>
+    <span class="tag">4 ch</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">500</div></div>
+    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">90,222</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-09</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_PHP.html" class="card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy">PHP</div>
+      <div class="card-country">Philippines</div>
+    </div>
+    <span class="tag">4 ch</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">500</div></div>
+    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">107,441</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-09</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_SGD.html" class="card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy">SGD</div>
+      <div class="card-country">Singapore</div>
+    </div>
+    <span class="tag">3 ch</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">500</div></div>
+    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">34,633</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-09</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_THB.html" class="card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy">THB</div>
+      <div class="card-country">Thailand</div>
+    </div>
+    <span class="tag">3 ch</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">500</div></div>
+    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">64,354</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-09</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_VND.html" class="card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy">VND</div>
+      <div class="card-country">Vietnam</div>
+    </div>
+    <span class="tag">3 ch</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">SKUs</div><div class="card-stat-val">500</div></div>
+    <div><div class="card-stat-lbl">Records</div><div class="card-stat-val">67,900</div></div>
+  </div>
+  <div class="card-date">2024-09-05 → 2026-06-09</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+  </div>
+
+  <!-- Explainer — collapsible -->
+  <div class="explainer-toggle" id="exp-toggle" onclick="toggleExp()">
+    <h2>ℹ️ &nbsp;What is this? How does it work?</h2>
+    <span class="arrow" id="exp-arrow">▼</span>
+  </div>
+  <div class="explainer-body" id="exp-body">
+    <p>
+      This tool measures <strong>price elasticity of demand</strong> — how much quantity sold changes
+      when a product's price changes. It helps answer questions like:
+      <em>If we discount this SKU by 10%, will the volume increase enough to offset the margin hit?
+      Are customers more price-sensitive during a 11.11 sale vs. a regular day?
+      Which categories respond most to price changes on TikTok vs. Shopee?</em>
+    </p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">Step 1</div>
+        <div class="step-title">Collect daily data</div>
+        <div class="step-desc">Order-level data (SKU, channel, price, qty) from Jan 2024 across 6 SEA markets, enriched with product catalogue (Gender, Division, RBU, Colour).</div>
+      </div>
+      <div class="step">
+        <div class="step-num">Step 2</div>
+        <div class="step-title">Classify day types</div>
+        <div class="step-desc"><strong>D-day</strong> = mega campaigns (3.3–12.12) · <strong>Special</strong> = mid-month (14–15) &amp; payday (last 4 days) · <strong>BAU</strong> = everything else.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">Step 3</div>
+        <div class="step-title">Log-log regression</div>
+        <div class="step-desc">For each SKU we fit an OLS regression on log(price) vs. log(quantity). The slope is the elasticity coefficient. Requires ≥5 distinct price points.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">Step 4</div>
+        <div class="step-title">Filter &amp; compare</div>
+        <div class="step-desc">Slice by channel, gender, division, RBU, colour code, day type, and date range. All charts recalculate live — no server needed.</div>
+      </div>
+    </div>
+    <p style="margin-top:16px;font-weight:600;font-size:13px;color:var(--text)">How to read the elasticity number</p>
+    <div class="interp">
+      <div class="interp-card elastic">
+        <div class="interp-title">Below −1 · Elastic</div>
+        <div class="interp-desc">Demand drops more than proportionally when price rises. Customers are price-sensitive — discounting drives significant volume uplift.</div>
+      </div>
+      <div class="interp-card inelastic">
+        <div class="interp-title">−1 to 0 · Inelastic</div>
+        <div class="interp-desc">Demand holds up even as price changes. Brand loyalty or lack of alternatives. You have pricing power here.</div>
+      </div>
+      <div class="interp-card positive">
+        <div class="interp-title">Positive · Anomalous</div>
+        <div class="interp-desc">Higher price correlates with more demand — possible for luxury/status goods, or a data artefact (e.g. bundles). Interpret with caution.</div>
+      </div>
+    </div>
+    <div class="note">
+      <strong>Data coverage:</strong> Top 500 SKUs per market by volume · Free / zero-price units counted in volume stats but excluded from elasticity · ~94% of sales volume has full product metadata · ~6% (~10,600 SKUs) not matched to catalogue — see <em>unmapped_skus.csv</em>.
+    </div>
+  </div>
+
+  <div class="footer">Powered by log-log OLS regression · Filters computed client-side in browser</div>
+</div>
+<script>
+function toggleExp(){
+  const body=document.getElementById('exp-body');
+  const toggle=document.getElementById('exp-toggle');
+  const arrow=document.getElementById('exp-arrow');
+  body.classList.toggle('open');
+  toggle.classList.toggle('open');
+}
+</script>
+</body>
+</html>
