@@ -23,7 +23,7 @@ import pandas as pd
 # ── Configuration ──────────────────────────────────────────────────────────────
 D_DAYS = {(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12)}
 MIN_POINTS_FOR_ELASTICITY = 5
-TOP_SKUS_PER_COUNTRY      = 500
+TOP_SKUS_PER_COUNTRY      = 1000
 DEFAULT_SELECTED_SKUS     = 5
 
 COUNTRY_NAMES = {
@@ -166,6 +166,8 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
 
         # Top N colours by total volume
         color_vol  = sub.groupby("color_no")["total_qty"].sum().sort_values(ascending=False)
+        eligible   = color_vol[color_vol > 50]
+        print(f"  [{ccy}] total distinct colours: {len(color_vol):,}  |  qty>50: {len(eligible):,}  |  capped at top {top_n}")
         top_colors = color_vol.head(top_n).index.tolist()
 
         # Build colour metadata list
@@ -429,16 +431,16 @@ tr:hover td{background:var(--bg)}
 </div>
 
 <div class="stats">
-  <div class="stat"><div class="stat-lbl">SKUs w/ Elasticity</div><div class="stat-val" id="s-skus">—</div><div class="stat-sub">SKUs with ≥5 unique price points in current filter view</div></div>
+  <div class="stat"><div class="stat-lbl">Articles w/ Elasticity</div><div class="stat-val" id="s-skus">—</div><div class="stat-sub">Articles (colours) with ≥5 unique price points in current filter view</div></div>
   <div class="stat"><div class="stat-lbl">Avg Elasticity</div><div class="stat-val" id="s-el">—</div><div class="stat-sub"><strong>Below −1</strong> = elastic · <strong>−1 to 0</strong> = inelastic · <strong>Positive</strong> = anomalous</div></div>
-  <div class="stat"><div class="stat-lbl">Total Units Sold</div><div class="stat-val" id="s-qty">—</div><div class="stat-sub">Sum across selected SKUs, channels &amp; date range</div></div>
+  <div class="stat"><div class="stat-lbl">Total Units Sold</div><div class="stat-val" id="s-qty">—</div><div class="stat-sub">Sum across selected articles (colours), channels &amp; date range</div></div>
   <div class="stat"><div class="stat-lbl">Avg Price</div><div class="stat-val" id="s-price">—</div><div class="stat-sub">Weighted average selling price (weighted by qty sold)</div></div>
 </div>
 
 <div class="grid">
   <div class="card">
     <div class="card-title">Price vs. Quantity
-      <span class="info" data-tip="Each dot = one unique price point for a SKU. The dotted line is the estimated demand curve (log-log OLS). Downward slope = higher price → lower demand.">i</span>
+      <span class="info" data-tip="Each dot = one unique price point for an article (colour). The dotted line is the estimated demand curve (log-log OLS). Downward slope = higher price → lower demand.">i</span>
     </div>
     <div class="card-body"><div id="ch-scatter"></div></div>
   </div>
@@ -788,7 +790,7 @@ function updTable(el){
   lastTableData=s;
   const si=c=>c===sortCol?(sortAsc?' ↑':' ↓'):'';
   const html=s.length===0
-    ?'<div class="no-data">No SKUs with ≥5 data points in current selection</div>'
+    ?'<div class="no-data">No articles with ≥5 data points in current selection</div>'
     :`<div class="tbl-wrap"><table>
       <thead><tr>
         <th onclick="sort('name')">Product${si('name')}</th>
@@ -981,7 +983,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <p>
       This tool measures <strong>price elasticity of demand</strong> — how much quantity sold changes
       when a product's price changes. It helps answer questions like:
-      <em>If we discount this SKU by 10%, will the volume increase enough to offset the margin hit?
+      <em>If we discount this article by 10%, will the volume increase enough to offset the margin hit?
       Are customers more price-sensitive during a 11.11 sale vs. a regular day?
       Which categories respond most to price changes on TikTok vs. Shopee?</em>
     </p>
@@ -1005,7 +1007,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="step">
         <div class="step-num">Step 3</div>
         <div class="step-title">Log-log regression</div>
-        <div class="step-desc">For each SKU we fit an OLS regression on log(price) vs. log(quantity). The slope is the elasticity coefficient. Requires ≥5 distinct price points.</div>
+        <div class="step-desc">For each article (colour) we fit an OLS regression on log(price) vs. log(quantity). The slope is the elasticity coefficient. Requires ≥5 distinct price points.</div>
       </div>
       <div class="step">
         <div class="step-num">Step 4</div>
@@ -1027,7 +1029,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="interp-desc">Higher price correlates with more demand — possible for luxury/status goods, or a data artefact (e.g. bundles). Interpret with caution.</div>
     </div>
     <div class="note">
-      <strong>Data coverage:</strong> Top __TOP_N__ SKUs per market by volume · Free / zero-price units counted in volume stats but excluded from elasticity · ~94% of sales volume has full product metadata · ~6% (~10,600 SKUs) not matched to catalogue — see <em>unmapped_skus.csv</em>.
+      <strong>Data coverage:</strong> Top __TOP_N__ articles (colours) per market by volume · Free / zero-price units counted in volume stats but excluded from elasticity · ~94% of sales volume has full product metadata · ~6% (~10,600 articles) not matched to catalogue — see <em>unmapped_skus.csv</em>.
   </div>
 
 </div>
