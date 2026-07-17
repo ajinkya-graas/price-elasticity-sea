@@ -75,6 +75,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .interp-desc{font-size:11px;color:#374151;line-height:1.5}
 .note{font-size:12px;color:var(--muted);background:#f9fafb;border-left:3px solid var(--border);padding:8px 12px;border-radius:0 5px 5px 0;margin-top:12px;line-height:1.6}
 
+/* Store-type toggle */
+.store-toggle{display:flex;gap:0;background:#f3f4f6;border-radius:8px;padding:3px;width:fit-content;margin-bottom:20px}
+.store-toggle-btn{padding:6px 22px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s}
+.store-toggle-btn.mp-active{background:#fff;color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.store-toggle-btn.foc-active{background:#fff;color:#92400e;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+/* FOC card overrides */
+.card.foc-card:hover{border-color:#d97706;box-shadow:0 4px 16px rgba(217,119,6,.12)}
+.card.foc-card::before{background:#d97706}
+.ccy-foc{color:#d97706}
+.tag-foc{background:#fef3c7;color:#92400e;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+
 </style>
 </head>
 <body>
@@ -96,8 +107,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 <div class="main">
 
-  <div class="section-label">Select a market</div>
-  <div class="grid">
+  <div class="store-toggle">
+    <button class="store-toggle-btn mp-active" id="btn-mp" onclick="switchView('mp')">Marketplace</button>
+    <button class="store-toggle-btn" id="btn-foc" onclick="switchView('foc')">FOC Stores</button>
+  </div>
+  <div class="section-label" id="section-lbl">Select a market</div>
+  <div class="grid" id="grid-mp">
     
 <a href="elasticity_IDR.html" class="card">
   <div class="card-top">
@@ -197,6 +212,106 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
   </div>
 
+  <div class="grid" id="grid-foc" style="display:none">
+
+<a href="elasticity_foc_IDR.html" class="card foc-card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy ccy-foc">IDR</div>
+      <div class="card-country">Indonesia</div>
+    </div>
+    <span class="tag-foc">5 stores</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">Articles</div><div class="card-stat-val">975</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">17,353</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-30</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_foc_MYR.html" class="card foc-card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy ccy-foc">MYR</div>
+      <div class="card-country">Malaysia</div>
+    </div>
+    <span class="tag-foc">11 stores</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">Articles</div><div class="card-stat-val">1,000</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">355,800</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-30</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_foc_PHP.html" class="card foc-card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy ccy-foc">PHP</div>
+      <div class="card-country">Philippines</div>
+    </div>
+    <span class="tag-foc">4 stores</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">Articles</div><div class="card-stat-val">1,000</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">81,701</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-30</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_foc_SGD.html" class="card foc-card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy ccy-foc">SGD</div>
+      <div class="card-country">Singapore</div>
+    </div>
+    <span class="tag-foc">9 stores</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">Articles</div><div class="card-stat-val">1,000</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">285,228</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-30</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_foc_THB.html" class="card foc-card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy ccy-foc">THB</div>
+      <div class="card-country">Thailand</div>
+    </div>
+    <span class="tag-foc">6 stores</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">Articles</div><div class="card-stat-val">1,000</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">163,974</div></div>
+  </div>
+  <div class="card-date">2024-01-01 → 2026-06-30</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+<a href="elasticity_foc_VND.html" class="card foc-card">
+  <div class="card-top">
+    <div>
+      <div class="card-ccy ccy-foc">VND</div>
+      <div class="card-country">Vietnam</div>
+    </div>
+    <span class="tag-foc">1 store</span>
+  </div>
+  <div class="card-stats">
+    <div><div class="card-stat-lbl">Articles</div><div class="card-stat-val">1,000</div></div>
+    <div><div class="card-stat-lbl">Data Points</div><div class="card-stat-val">22,603</div></div>
+  </div>
+  <div class="card-date">2025-11-08 → 2026-06-30</div>
+  <div class="open-btn">Open Dashboard →</div>
+</a>
+
+  </div>
+
   <!-- Explainer — collapsible -->
   <div class="explainer-toggle" id="exp-toggle" onclick="toggleExp()">
     <h2>ℹ️ &nbsp;What is this? How does it work?</h2>
@@ -259,6 +374,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 </div>
 <script>
+function switchView(v){
+  const isFoc=v==='foc';
+  document.getElementById('grid-mp').style.display=isFoc?'none':'grid';
+  document.getElementById('grid-foc').style.display=isFoc?'grid':'none';
+  const btnMp=document.getElementById('btn-mp');
+  const btnFoc=document.getElementById('btn-foc');
+  btnMp.className='store-toggle-btn'+(isFoc?'':' mp-active');
+  btnFoc.className='store-toggle-btn'+(isFoc?' foc-active':'');
+  document.getElementById('section-lbl').textContent=isFoc?'Select a FOC market':'Select a market';
+}
 function toggleExp(){
   const body=document.getElementById('exp-body');
   const toggle=document.getElementById('exp-toggle');
