@@ -30,6 +30,39 @@ COUNTRY_NAMES = {
     "PHP": "Philippines", "IDR": "Indonesia", "MYR": "Malaysia",
     "SGD": "Singapore",   "THB": "Thailand",  "VND": "Vietnam",
 }
+
+MASTERLINE_PATH_DEFAULT = Path(__file__).parent.parent.parent / "Masterline List Cobsolidate File_2021 Onward v2.xlsx"
+
+_GENDER_NORM = {
+    'male': 'Male',   'men': 'Male',    'mens': 'Male',   'males': 'Male',
+    'female': 'Female', 'women': 'Female', 'womens': 'Female', 'females': 'Female',
+    'unisex': 'Unisex', 'male / unisex': 'Unisex',
+    'kids': 'Kids',   'kid': 'Kids',
+    'adult': 'Adult', 'adults': 'Adult',
+}
+
+def normalize_gender(val) -> str:
+    if pd.isna(val) or str(val).strip().lower() in ('na', 'nan', '0', ''):
+        return "Unknown"
+    return _GENDER_NORM.get(str(val).strip().lower(), str(val).strip())
+
+
+def load_masterline_franchise(path: Path) -> pd.DataFrame:
+    """Load masterline; returns df with (color_clean, franchise) for marketplace join."""
+    if not path.exists():
+        print(f"  WARNING: Masterline not found at {path} — Franchise will show as Unknown.")
+        return pd.DataFrame(columns=['color_clean', 'franchise'])
+    print(f"\nLoading masterline for franchise: {path.name} …")
+    df = pd.read_excel(path, sheet_name='Data', header=3)
+    # Color_No in marketplace is "352634_03"; masterline SAP Art No. is "35263403"
+    df['color_clean'] = df['SAP Art No.'].astype(str).str.strip()
+    df['franchise']   = df['Franchise'].fillna('Unknown/Unbranded').astype(str).str.strip()
+    df.loc[df['franchise'].str.lower().isin(['nan', '', 'na']), 'franchise'] = 'Unknown/Unbranded'
+    out = df.drop_duplicates('color_clean')[['color_clean', 'franchise']].copy()
+    ff  = out['franchise'].ne('Unknown/Unbranded').mean() * 100
+    print(f"  {len(out):,} articles  franchise_fill={ff:.0f}%")
+    return out
+
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -85,13 +118,16 @@ def load_metadata(meta_path: str) -> pd.DataFrame:
             mf[col] = mf[col].fillna('Unknown').astype(str).str.strip()
         else:
             mf[col] = 'Unknown'
+    # Normalize gender to canonical values
+    mf['gender'] = mf['gender'].apply(normalize_gender)
     # One row per EAN (dedup — attributes are already 1:1)
     mf = mf.drop_duplicates(subset='ean')[['ean', 'color_no', 'gender', 'division', 'rbu']]
     print(f"  Metadata rows: {len(mf):,}  unique EANs: {mf['ean'].nunique():,}")
     return mf
 
 
-def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
+def process_all(sales_path: str, meta_path: str, top_n: int,
+                masterline_path: Path = None) -> dict:
     print(f"\nReading sales data {sales_path} …")
     df = pd.read_csv(sales_path, low_memory=False)
     df.columns = ["date", "sku", "seller_id", "channel", "price", "qty",
@@ -156,6 +192,12 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
           .set_index("color_no")[["gender", "division", "rbu"]]
     )
 
+    # Franchise from masterline — join by color_no (strip underscore = SAP Art No.)
+    ml_path = masterline_path if masterline_path else MASTERLINE_PATH_DEFAULT
+    ml_franchise = load_masterline_franchise(ml_path)
+    ml_idx = (ml_franchise.set_index('color_clean')
+              if len(ml_franchise) else pd.DataFrame())
+
     global_min = agg["date"].min().strftime("%Y-%m-%d")
     global_max = agg["date"].max().strftime("%Y-%m-%d")
 
@@ -182,17 +224,25 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
                 rbu      = str(attrs.get("rbu",      "Unknown") if isinstance(attrs, dict) else getattr(attrs, "rbu",      "Unknown"))
             else:
                 gender = division = rbu = "Unknown"
+            # Franchise: Color_No "352634_03" -> strip underscore -> "35263403" = SAP Art No.
+            cn_clean  = cn.replace('_', '')
+            franchise = (ml_idx.at[cn_clean, 'franchise']
+                         if len(ml_idx) and cn_clean in ml_idx.index
+                         else 'Unknown/Unbranded')
             meta.append({"cn": cn, "name": name or cn,
-                          "gender": gender, "division": division, "rbu": rbu})
+                          "gender": gender, "division": division, "rbu": rbu,
+                          "franchise": franchise})
 
         ccy_channels = sorted(raw["channel"].unique().tolist())
 
-        genders   = sorted(set(m["gender"]   for m in meta if m["gender"]   != "Unknown"))
-        divisions = sorted(set(m["division"] for m in meta if m["division"] != "Unknown"))
-        rbus      = sorted(set(m["rbu"]      for m in meta if m["rbu"]      != "Unknown"))
-        if any(m["gender"]   == "Unknown" for m in meta): genders.append("Unknown")
-        if any(m["division"] == "Unknown" for m in meta): divisions.append("Unknown")
-        if any(m["rbu"]      == "Unknown" for m in meta): rbus.append("Unknown")
+        genders    = sorted(set(m["gender"]    for m in meta if m["gender"]    != "Unknown"))
+        divisions  = sorted(set(m["division"]  for m in meta if m["division"]  != "Unknown"))
+        rbus       = sorted(set(m["rbu"]       for m in meta if m["rbu"]       != "Unknown"))
+        franchises = sorted(set(m["franchise"] for m in meta if m["franchise"] != "Unknown/Unbranded"))
+        if any(m["gender"]    == "Unknown"           for m in meta): genders.append("Unknown")
+        if any(m["division"]  == "Unknown"           for m in meta): divisions.append("Unknown")
+        if any(m["rbu"]       == "Unknown"           for m in meta): rbus.append("Unknown")
+        if any(m["franchise"] == "Unknown/Unbranded" for m in meta): franchises.append("Unknown/Unbranded")
 
         sub_top = sub[sub["color_no"].isin(top_colors)]
         records = []
@@ -214,10 +264,11 @@ def process_all(sales_path: str, meta_path: str, top_n: int) -> dict:
             "ch_labels": {ch: channel_label(ch, ccy_channels) for ch in ccy_channels},
             "color_meta": meta,
             "def_colors": top_colors[:DEFAULT_SELECTED_SKUS],
-            "genders":   genders,
-            "divisions": divisions,
-            "rbus":      rbus,
-            "records":   records,
+            "genders":    genders,
+            "divisions":  divisions,
+            "rbus":       rbus,
+            "franchises": franchises,
+            "records":    records,
             "min_date":  sub["date"].min().strftime("%Y-%m-%d"),
             "max_date":  sub["date"].max().strftime("%Y-%m-%d"),
             "n_colors":  len(top_colors),
@@ -381,6 +432,22 @@ tr:hover td{background:var(--bg)}
       </div>
     </div>
   </div>
+
+  <div class="fg">
+    <div class="fl">Franchise</div>
+    <div class="rbu-wrap">
+      <button class="rbu-btn" onclick="toggleFranchiseDrop()">
+        <span id="franchise-lbl">All</span><span>▾</span>
+      </button>
+      <div class="rbu-drop" id="franchise-drop">
+        <div class="rbu-actions">
+          <button onclick="franchiseAll()">All</button>
+          <button onclick="franchiseClear()">Clear</button>
+        </div>
+        <div id="franchise-list"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Filter row 2: Colour + Day type + Date -->
@@ -471,9 +538,10 @@ const DATA_CCY = '__CCY__';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let selChannels = new Set(DATA.channels);
-let selGender   = new Set(DATA.genders);
-let selDivision = new Set(DATA.divisions);
-let selRBU      = new Set(DATA.rbus);
+let selGender    = new Set(DATA.genders);
+let selDivision  = new Set(DATA.divisions);
+let selRBU       = new Set(DATA.rbus);
+let selFranchise = new Set(DATA.franchises);
 let sel         = new Set(DATA.def_colors.map(String));
 let selDT       = new Set(['D-day','Special','BAU']);
 let d0          = DATA.min_date;
@@ -491,7 +559,7 @@ const GRID    = {showgrid:true,gridcolor:'#f3f4f6'};
 // ── Colour lookup helpers ─────────────────────────────────────────────────────
 const COLOR_MAP = {};
 DATA.color_meta.forEach(m=>{ COLOR_MAP[m.cn]=m; });
-function colorInfo(cn){ return COLOR_MAP[cn]||{cn,name:cn,gender:'',division:'',rbu:''}; }
+function colorInfo(cn){ return COLOR_MAP[cn]||{cn,name:cn,gender:'',division:'',rbu:'',franchise:''}; }
 
 // ── Visible colours (intersection of metadata filters) ────────────────────────
 function visibleColors(){
@@ -499,7 +567,8 @@ function visibleColors(){
     .filter(m=>
       (selGender.has(m.gender)||selGender.has('Unknown'))&&
       (selDivision.has(m.division)||selDivision.has('Unknown'))&&
-      (selRBU.has(m.rbu)||selRBU.has('Unknown'))
+      (selRBU.has(m.rbu)||selRBU.has('Unknown'))&&
+      (selFranchise.has(m.franchise)||selFranchise.has('Unknown/Unbranded'))
     )
     .map(m=>m.cn);
 }
@@ -519,14 +588,18 @@ function init(){
   renderMetaFilter('division-filter', DATA.divisions, selDivision, toggleDivision);
   renderRbuList();
   updRbuBtn();
+  renderFranchiseList();
+  updFranchiseBtn();
   renderSkuList('');
 
   // Close dropdowns on outside click
   document.addEventListener('click', e=>{
     if(!document.querySelector('.sku-wrap').contains(e.target))
       document.getElementById('sku-drop').classList.remove('open');
-    if(!document.querySelector('.rbu-wrap').contains(e.target))
-      document.getElementById('rbu-drop').classList.remove('open');
+    document.querySelectorAll('.rbu-wrap').forEach(w=>{
+      if(!w.contains(e.target))
+        w.querySelector('.rbu-drop')?.classList.remove('open');
+    });
   });
 
   updateAll();
@@ -593,6 +666,35 @@ function updRbuBtn(){
     `${selRBU.size} selected`;
 }
 
+// ── Franchise dropdown ────────────────────────────────────────────────────────
+function renderFranchiseList(){
+  document.getElementById('franchise-list').innerHTML=DATA.franchises.map(f=>`
+    <label class="rbu-item">
+      <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" ${selFranchise.has(f)?'checked':''}
+             onchange="toggleFranchise('${f.replace(/'/g,"\\'")}',this.checked)">
+      ${f}
+    </label>`).join('');
+}
+function toggleFranchiseDrop(){ document.getElementById('franchise-drop').classList.toggle('open'); }
+function toggleFranchise(f,c){
+  if(!c && selFranchise.size===1){ document.querySelector(`#franchise-list input[value="${f.replace(/"/g,'&quot;')}"]`).checked=true; return; }
+  c?selFranchise.add(f):selFranchise.delete(f);
+  updFranchiseBtn();
+  renderSkuList(document.getElementById('sku-q').value);
+  updateAll();
+}
+function franchiseAll(){ DATA.franchises.forEach(f=>selFranchise.add(f)); renderFranchiseList(); updFranchiseBtn(); renderSkuList(document.getElementById('sku-q').value); updateAll(); }
+function franchiseClear(){
+  const first=DATA.franchises[0]; selFranchise.clear(); if(first)selFranchise.add(first);
+  renderFranchiseList(); updFranchiseBtn(); renderSkuList(document.getElementById('sku-q').value); updateAll();
+}
+function updFranchiseBtn(){
+  document.getElementById('franchise-lbl').textContent=
+    selFranchise.size===DATA.franchises.length?'All':
+    selFranchise.size===1?[...selFranchise][0]:
+    `${selFranchise.size} selected`;
+}
+
 // ── Colour multi-select ───────────────────────────────────────────────────────
 function renderSkuList(q){
   const lq=q.toLowerCase();
@@ -613,6 +715,7 @@ function renderSkuList(q){
             ${m.gender&&m.gender!=='Unknown'?`<span class="sku-tag">${m.gender}</span>`:''}
             ${m.division&&m.division!=='Unknown'?`<span class="sku-tag">${m.division}</span>`:''}
             ${m.rbu&&m.rbu!=='Unknown'?`<span class="sku-tag">${m.rbu}</span>`:''}
+            ${m.franchise&&m.franchise!=='Unknown/Unbranded'?`<span class="sku-tag">${m.franchise}</span>`:''}
           </div>
         </div>
       </label>`).join('');
@@ -691,7 +794,7 @@ function elByColor(recs){
     const info=colorInfo(cn);
     return {
       cn, name:info.name||cn,
-      gender:info.gender||'', division:info.division||'', rbu:info.rbu||'',
+      gender:info.gender||'', division:info.division||'', rbu:info.rbu||'', franchise:info.franchise||'',
       elasticity:ols(d.p,d.q),
       avg_price:d.paidQty>0?d.rev/d.paidQty:0,
       total_qty:d.totalQty, data_points:d.p.length
@@ -768,10 +871,10 @@ function updScatter(f,el){
 let lastTableData=[];
 function exportTableCSV(){
   if(!lastTableData.length)return;
-  const cols=['Colour No','Product','Division','RBU','Gender','Elasticity','Avg Price','Total Qty','Data Points'];
+  const cols=['Colour No','Product','Gender','Franchise','Division','RBU','Elasticity','Avg Price','Total Qty','Data Points'];
   const rows=lastTableData.map(r=>[
     r.cn, `"${(r.name||'').replace(/"/g,'""')}"`,
-    r.division||'', r.rbu||'', r.gender||'',
+    r.gender||'', `"${(r.franchise||'').replace(/"/g,'""')}"`, r.division||'', r.rbu||'',
     r.elasticity.toFixed(2), Math.round(r.avg_price), r.total_qty, r.data_points
   ].join(','));
   const csv=[cols.join(','),...rows].join('\n');
@@ -795,20 +898,22 @@ function updTable(el){
       <thead><tr>
         <th onclick="sort('name')">Product${si('name')}</th>
         <th onclick="sort('cn')">Colour No${si('cn')}</th>
+        <th onclick="sort('gender')">Gender${si('gender')}</th>
+        <th onclick="sort('franchise')">Franchise${si('franchise')}</th>
         <th onclick="sort('division')">Division${si('division')}</th>
         <th onclick="sort('rbu')">RBU${si('rbu')}</th>
-        <th onclick="sort('gender')">Gender${si('gender')}</th>
         <th onclick="sort('elasticity')">Elasticity${si('elasticity')}</th>
         <th onclick="sort('avg_price')">Avg Price${si('avg_price')}</th>
         <th onclick="sort('total_qty')">Total Qty${si('total_qty')}</th>
         <th onclick="sort('data_points')">Pts${si('data_points')}</th>
       </tr></thead>
       <tbody>${s.map(r=>`<tr>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name}">${r.name}</td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name}">${r.name}</td>
         <td style="font-family:monospace;font-size:10px;color:var(--muted)">${r.cn}</td>
-        <td style="font-size:11px;color:var(--muted)">${r.division||'—'}</td>
-        <td style="font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.rbu||''}">${r.rbu||'—'}</td>
         <td style="font-size:11px;color:var(--muted)">${r.gender||'—'}</td>
+        <td style="font-size:11px;color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.franchise||''}">${r.franchise&&r.franchise!=='Unknown/Unbranded'?r.franchise:'—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${r.division||'—'}</td>
+        <td style="font-size:11px;color:var(--muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.rbu||''}">${r.rbu||'—'}</td>
         <td><span class="badge ${badgeCls(r.elasticity)}">${r.elasticity.toFixed(2)}</span>
             <span style="font-size:10px;color:#9ca3af;margin-left:4px">${badgeTxt(r.elasticity)}</span></td>
         <td>${Math.round(r.avg_price).toLocaleString()}</td>
@@ -1083,7 +1188,7 @@ def generate_country_html(cdata: dict, plotly_js: str) -> str:
     # strip keys not needed in JS
     js_data = {k: cdata[k] for k in
                ["channels","ch_labels","color_meta","def_colors",
-                "genders","divisions","rbus","records",
+                "genders","divisions","rbus","franchises","records",
                 "min_date","max_date","n_colors","n_records"]}
     data_json = json.dumps(js_data, default=str, ensure_ascii=False)
     html = COUNTRY_HTML
@@ -1121,10 +1226,11 @@ def generate_index_html(all_data: dict, top_n: int) -> str:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input",  default=None, help="Path to sales CSV")
-    parser.add_argument("--meta",   default=None, help="Path to mapping XLSX")
-    parser.add_argument("--outdir", default=None, help="Output directory (default: same as input CSV)")
-    parser.add_argument("--top",    type=int, default=TOP_SKUS_PER_COUNTRY, help="Top N SKUs per country")
+    parser.add_argument("--input",      default=None, help="Path to sales CSV")
+    parser.add_argument("--meta",       default=None, help="Path to mapping XLSX")
+    parser.add_argument("--outdir",     default=None, help="Output directory (default: same as input CSV)")
+    parser.add_argument("--top",        type=int, default=TOP_SKUS_PER_COUNTRY, help="Top N SKUs per country")
+    parser.add_argument("--masterline", default=None, help="Path to Masterline Excel file (for Franchise)")
     args = parser.parse_args()
 
     # Auto-detect files
@@ -1157,7 +1263,8 @@ def main():
     outdir = Path(args.outdir) if args.outdir else csv_path.parent
     outdir.mkdir(parents=True, exist_ok=True)
 
-    all_data = process_all(str(csv_path), str(meta_path), args.top)
+    ml_path = Path(args.masterline) if args.masterline else MASTERLINE_PATH_DEFAULT
+    all_data = process_all(str(csv_path), str(meta_path), args.top, ml_path)
 
     print("\nGenerating HTML files …")
     plotly_js = get_plotly_js()
