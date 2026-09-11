@@ -700,20 +700,26 @@ function elByColor(recs){
   // Round price to nearest PRICE_ROUND units before OLS to collapse
   // billing rounding artifacts (multi-qty fractional per-unit prices)
   // into genuine markdown price levels.
+  // OLS uses avg daily rate (total_qty / n_unique_dates) per price bucket
+  // rather than total_qty, to normalise for the fact that BAU prices are
+  // active for many more days than event/discount prices.
   const pr=DATA.price_round||1;
   const m={};
   recs.forEach(r=>{
-    if(!m[r.cn])m[r.cn]={buckets:{},totalQty:0,rev:0};
+    if(!m[r.cn])m[r.cn]={buckets:{},dates:{},totalQty:0,rev:0};
     m[r.cn].totalQty+=r.tq;
     if(r.tq>0){
       const pb=Math.round(r.p/pr)*pr;
       m[r.cn].buckets[pb]=(m[r.cn].buckets[pb]||0)+r.tq;
+      if(!m[r.cn].dates[pb])m[r.cn].dates[pb]=new Set();
+      m[r.cn].dates[pb].add(r.d);  // unique calendar dates at this price
       m[r.cn].rev+=r.p*r.tq;
     }
   });
   return Object.entries(m).map(([cn,d])=>{
     const prices=Object.keys(d.buckets).map(Number);
-    const qtys=prices.map(p=>d.buckets[p]);
+    // avg daily rate = total qty at price / number of unique days at that price
+    const qtys=prices.map(p=>d.buckets[p]/d.dates[p].size);
     const info=colorInfo(cn);
     return {
       cn, name:info.name||cn,
@@ -721,7 +727,9 @@ function elByColor(recs){
       gender:info.gender||'', franchise:info.franchise||'',
       elasticity:ols(prices,qtys),
       avg_price:d.totalQty>0?d.rev/d.totalQty:0,
-      total_qty:d.totalQty, data_points:prices.length
+      total_qty:d.totalQty, data_points:prices.length,
+      days_active:new Set(Object.values(d.dates).flatMap(ds=>[...ds])).size,
+      avg_daily_sales:d.totalQty/(new Set(Object.values(d.dates).flatMap(ds=>[...ds])).size||1)
     };
   }).filter(r=>r.elasticity!==null);
 }
@@ -794,11 +802,12 @@ function updScatter(f,el){
 let lastTableData=[];
 function exportTableCSV(){
   if(!lastTableData.length)return;
-  const cols=['Style No','Product','Division','RBU','Gender','Franchise','Elasticity','Avg Price','Total Qty','Data Points'];
+  const cols=['Style No','Product','Division','RBU','Gender','Franchise','Elasticity','Avg Price','Total Qty','Days Active','Avg Daily Sales','Data Points'];
   const rows=lastTableData.map(r=>[
     r.cn, `"${(r.name||'').replace(/"/g,'""')}"`,
     r.division||'', r.rbu||'', r.gender||'', `"${(r.franchise||'').replace(/"/g,'""')}"`,
-    r.elasticity.toFixed(2), Math.round(r.avg_price), r.total_qty, r.data_points
+    r.elasticity.toFixed(2), Math.round(r.avg_price), r.total_qty, r.days_active,
+    (r.avg_daily_sales||0).toFixed(2), r.data_points
   ].join(','));
   const csv=[cols.join(','),...rows].join('\n');
   const a=document.createElement('a');
@@ -828,6 +837,8 @@ function updTable(el){
         <th onclick="sort('elasticity')">Elasticity${si('elasticity')}</th>
         <th onclick="sort('avg_price')">Avg Price${si('avg_price')}</th>
         <th onclick="sort('total_qty')">Total Qty${si('total_qty')}</th>
+        <th onclick="sort('days_active')">Days Active${si('days_active')}</th>
+        <th onclick="sort('avg_daily_sales')">Avg Daily Sales${si('avg_daily_sales')}</th>
         <th onclick="sort('data_points')">Pts${si('data_points')}</th>
       </tr></thead>
       <tbody>${s.map(r=>`<tr>
@@ -841,6 +852,8 @@ function updTable(el){
             <span style="font-size:10px;color:#9ca3af;margin-left:4px">${badgeTxt(r.elasticity)}</span></td>
         <td>${Math.round(r.avg_price).toLocaleString()}</td>
         <td>${r.total_qty.toLocaleString()}</td>
+        <td style="color:var(--muted)">${r.days_active}</td>
+        <td style="color:var(--muted)">${(r.avg_daily_sales||0).toFixed(2)}</td>
         <td style="color:${r.data_points<10?'#f59e0b':'inherit'}">${r.data_points}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
